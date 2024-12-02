@@ -12,6 +12,79 @@ This solution implements a structured approach to prompt chaining using Azure Op
 2. Final Output Stage:
    - Utilizes gpt-4o to synthesize a detailed and holistic response, grounded in the structured plan generated during the planning stage.
 
+## Process Flow
+
+The following Mermaid diagram illustrates the detailed process flow of the AI-Powered Prompt Chaining System:
+
+```mermaid
+graph TD
+    A[User Input] --> B[Validate User Prompt]
+    B --> C{Valid?}
+    C -->|Yes| D[Planning Stage]
+    C -->|No| Z[Return Error]
+    D --> E[gpt-4o-mini Model]
+    E --> F[Generate Structured Plan]
+    F --> G[Validate Plan]
+    G --> H{Valid?}
+    H -->|Yes| I[Final Output Stage]
+    H -->|No| J[Retry Planning]
+    J --> E
+    I --> K[gpt-4o Model]
+    K --> L[Generate Comprehensive Response]
+    L --> M[Validate Response]
+    M --> N{Valid?}
+    N -->|Yes| O[Return Final Output]
+    N -->|No| P[Retry Final Output]
+    P --> K
+    O --> Q[Performance Metrics]
+    Q --> R[End]
+
+    subgraph Planning Stage
+    D
+    E
+    F
+    G
+    H
+    J
+    end
+
+    subgraph Final Output Stage
+    I
+    K
+    L
+    M
+    N
+    P
+    end
+
+    subgraph Error Handling
+    Z
+    end
+
+    subgraph Validation
+    B
+    C
+    G
+    H
+    M
+    N
+    end
+
+    subgraph Performance Tracking
+    Q
+    end
+```
+
+This diagram showcases the following key aspects of the system:
+
+1. User input validation
+2. Two-stage processing (Planning and Final Output)
+3. Use of different models (gpt-4o-mini and gpt-4o)
+4. Validation steps throughout the process
+5. Retry mechanisms for both planning and final output stages
+6. Error handling
+7. Performance tracking
+
 ## Goals
 
 1. Enhance Reasoning Quality:
