@@ -24,7 +24,7 @@ This repository contains an advanced AI-powered prompt chaining system that leve
 1. Clone the repository:
 
    ```
-   git clone https://github.com/yourusername/ai-prompt-chaining.git
+   git clone https://github.com/terilios/reasoning-iteration.git
    ```
 
 2. Install required packages:
