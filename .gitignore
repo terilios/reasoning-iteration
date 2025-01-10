@@ -60,3 +60,8 @@ ipython_config.py
 # pyenv
 .python-version
 prototype.py
+
+# Test and output files
+test_prompts.txt
+your_prompts.txt
+results.md

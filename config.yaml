@@ -1,0 +1,27 @@
+# AI-Powered Prompt Chaining System Configuration
+
+# Token limits
+planning_max_tokens: 2000
+output_max_tokens: 4000
+
+# Model parameters
+temperature: 0.7
+
+# Retry settings
+max_retries: 3
+retry_base_delay: 1.0
+
+# Validation thresholds
+min_plan_length: 50
+min_response_length: 200
+min_paragraphs: 2
+
+# Quality thresholds
+quality_thresholds:
+  high: 0.8
+  medium: 0.6
+  low: 0.4
+
+# Async processing settings
+concurrent_requests: 3
+async_batch_size: 5
