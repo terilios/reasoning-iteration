@@ -114,32 +114,40 @@ This diagram showcases the following key aspects of the system:
 
 - **Two-Stage Processing**: Utilizes gpt-4o-mini for planning and gpt-4o for final output generation.
 - **Robust Error Handling**: Implements custom exceptions, retry mechanisms, and validation checks for improved reliability.
-- **Configurable Settings**: Centralized configuration management for easy parameter adjustments.
+- **Configurable Settings**: Centralized configuration management through YAML files for easy parameter adjustments.
 - **Input and Output Validation**: Ensures high-quality responses through thorough validation and quality assessment.
 - **Performance Tracking**: Detailed execution statistics for monitoring and optimization.
 - **Modular Design**: Well-structured code for easy maintenance and extensibility.
+- **Async Processing**: Support for processing multiple prompts concurrently with configurable batch sizes.
 
 ## Requirements
 
 - Python 3.7+
 - Azure OpenAI API access
-- Required Python packages: `openai`, `python-dotenv`
+- Required Python packages:
+  ```
+  openai
+  python-dotenv
+  pyyaml
+  aiohttp
+  ```
 
 ## Setup
 
 1. Clone the repository:
 
-   ```
+   ```bash
    git clone https://github.com/terilios/reasoning-iteration.git
    ```
 
 2. Install required packages:
 
-   ```
-   pip install openai python-dotenv
+   ```bash
+   pip install -r requirements.txt
    ```
 
 3. Create a `.env` file in the root directory and add your Azure OpenAI credentials:
+
    ```
    AZURE_OPENAI_API_KEY=your_api_key
    AZURE_OPENAI_API_BASE=your_api_base
@@ -147,28 +155,70 @@ This diagram showcases the following key aspects of the system:
    AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
    AZURE_OPENAI_MINI_DEPLOYMENT_NAME=your_mini_deployment_name
    ```
+
    Note: The `.env` file is included in `.gitignore` to prevent sensitive information from being uploaded to the repository.
+
+4. (Optional) Create a `config.yaml` file to customize system settings:
+
+   ```yaml
+   # Token limits
+   planning_max_tokens: 2000
+   output_max_tokens: 4000
+
+   # Model parameters
+   temperature: 0.7
+
+   # Retry settings
+   max_retries: 3
+   retry_base_delay: 1.0
+
+   # Validation thresholds
+   min_plan_length: 50
+   min_response_length: 200
+   min_paragraphs: 2
+
+   # Quality thresholds
+   quality_thresholds:
+     high: 0.8
+     medium: 0.6
+     low: 0.4
+
+   # Async processing settings
+   concurrent_requests: 3
+   async_batch_size: 5
+   ```
 
 ## Usage
 
-The script supports two modes of operation:
+The script supports several modes of operation:
 
-1. Direct Command Line:
+1. Single Prompt Processing:
 
    ```bash
-   python main.py "Your prompt here"
+   python main.py --prompt "Your prompt here"
    ```
 
-2. Interactive Mode:
+2. Multiple Prompts from File:
+
    ```bash
-   python main.py
+   python main.py --prompts-file your_prompts.txt
    ```
-   Then enter your prompt when prompted. Press Enter twice to submit.
+
+3. Multiple Prompts with Async Processing:
+
+   ```bash
+   python main.py --prompts-file your_prompts.txt --use-async
+   ```
+
+4. Custom Configuration:
+   ```bash
+   python main.py --prompt "Your prompt here" --config custom_config.yaml
+   ```
 
 The script will:
 
-1. Process your prompt through the planning stage using gpt-4o-mini
-2. Generate a detailed response using gpt-4o
+1. Process your prompt(s) through the planning stage using gpt-4o-mini
+2. Generate detailed response(s) using gpt-4o
 3. Write the results to results.md with:
    - Original prompt
    - Generated plan
@@ -186,15 +236,16 @@ The script will:
 
 - Clear Separation of Concerns: The code is well-organized into distinct functions for planning and output generation.
 - Robust Error Handling: Try-except blocks are properly implemented in each stage.
-- Good Configuration Management: Environment variables are used for sensitive configuration.
+- Good Configuration Management: Environment variables and YAML configuration for flexible settings.
 - Helpful Debugging Features: Comprehensive logging of prompts and responses, and performance metrics tracking.
+- Async Support: Efficient processing of multiple prompts with configurable batch sizes.
 
 ### Areas for Improvement:
 
 - Response Validation: Enhance quality checks for the planning stage output and final response.
 - Configuration Enhancement: Add more configurable parameters for flexibility.
 - Enhanced Error Recovery: Implement more sophisticated retry logic with exponential backoff.
-- Extensibility: Add support for custom prompt templates and async operations.
+- Extensibility: Add support for custom prompt templates.
 - Documentation: Expand docstrings and add more type hints for better code clarity.
 
 ## Contributing
@@ -240,4 +291,4 @@ The execution statistics include:
 
 ## Summary
 
-This solution leverages Azure OpenAI's models to tackle complex tasks with greater efficiency and thoughtfulness. By employing a structured, two-stage approach with comprehensive token tracking and performance monitoring, it enhances both the quality of the AI's output and the scalability of its application in various domains, such as strategic planning, content generation, and process optimization.
+This solution leverages Azure OpenAI's models to tackle complex tasks with greater efficiency and thoughtfulness. By employing a structured, two-stage approach with comprehensive token tracking, performance monitoring, and async processing capabilities, it enhances both the quality of the AI's output and the scalability of its application in various domains, such as strategic planning, content generation, and process optimization.
