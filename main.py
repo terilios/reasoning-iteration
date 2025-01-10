@@ -20,8 +20,8 @@ class ResponseQuality(Enum):
 @dataclass
 class Config:
     """Configuration settings for the prompt chaining system"""
-    planning_max_tokens: int = 1000
-    output_max_tokens: int = 2000
+    planning_max_tokens: int = 2000
+    output_max_tokens: int = 4000
     temperature: float = 0.7
     max_retries: int = 3
     retry_base_delay: float = 1.0  # seconds
@@ -278,9 +278,8 @@ def process_response(response: str, min_length: int = 0) -> str:
     if not response:
         raise ResponseValidationError("Empty response received")
     
-    # Remove excessive whitespace
+    # Clean up whitespace while preserving line breaks
     processed = "\n".join(line.strip() for line in response.splitlines())
-    processed = " ".join(processed.split())
     
     # Ensure minimum length
     if min_length > 0 and len(processed) < min_length:
@@ -290,7 +289,7 @@ def process_response(response: str, min_length: int = 0) -> str:
     
     return processed
 
-def planning_stage(user_prompt: str) -> Optional[str]:
+def planning_stage(user_prompt: str) -> Optional[Tuple[str, int]]:
     """
     Uses gpt-4o-mini to create a plan for addressing the user prompt.
     
@@ -340,7 +339,7 @@ def planning_stage(user_prompt: str) -> Optional[str]:
         print_validation_result("Planning", result)
         
         if result.is_valid:
-            return plan
+            return plan, planning_response.usage.total_tokens
         else:
             raise ResponseValidationError("Invalid plan generated")
     
@@ -354,7 +353,7 @@ def planning_stage(user_prompt: str) -> Optional[str]:
         print(f"An error occurred during the planning stage: {e}")
         return None
 
-def final_output_stage(user_prompt: str, plan: str) -> Optional[str]:
+def final_output_stage(user_prompt: str, plan: str) -> Optional[Tuple[str, int]]:
     """
     Uses gpt-4o to generate the final, detailed response based on the initial prompt and the plan.
     
@@ -403,7 +402,7 @@ def final_output_stage(user_prompt: str, plan: str) -> Optional[str]:
         print_validation_result("Final Output", result)
         
         if result.is_valid:
-            return final_content
+            return final_content, final_response.usage.total_tokens
         else:
             raise ResponseValidationError("Invalid final response generated")
     
@@ -413,6 +412,85 @@ def final_output_stage(user_prompt: str, plan: str) -> Optional[str]:
     except Exception as e:
         print(f"An error occurred during the final output stage: {e}")
         return None
+
+def write_markdown_results(user_prompt: str, plan: str, final_response: str, stats: ExecutionStats) -> None:
+    """
+    Write the results to a markdown file with proper formatting.
+    
+    Args:
+        user_prompt: The original user prompt
+        plan: The generated plan
+        final_response: The final enhanced response
+        stats: Execution statistics
+    """
+    def format_text(text: str) -> str:
+        # Preserve the original line breaks and formatting from the API response
+        lines = text.split("\n")
+        formatted_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            if stripped:
+                formatted_lines.append(stripped)
+            elif formatted_lines and formatted_lines[-1]:  # Keep empty lines for spacing
+                formatted_lines.append("")
+        
+        # Join lines and clean up
+        text = "\n".join(formatted_lines)
+        
+        # Add spacing around section dividers
+        text = text.replace("---", "\n\n---\n\n")
+        
+        # Clean up multiple blank lines
+        while "\n\n\n" in text:
+            text = text.replace("\n\n\n", "\n\n")
+        
+        # Clean up whitespace while preserving intentional line breaks
+        lines = text.split("\n")
+        formatted_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped:
+                if stripped.startswith(("#", "-", "*", ">")):
+                    formatted_lines.append(stripped)
+                elif stripped.endswith(":"):
+                    formatted_lines.append("\n" + stripped)
+                else:
+                    formatted_lines.append(stripped)
+            elif formatted_lines and formatted_lines[-1]:  # Add empty line if previous line wasn't empty
+                formatted_lines.append("")
+        
+        return "\n".join(formatted_lines)
+    
+    # Format both plan and response
+    formatted_plan = format_text(plan)
+    formatted_response = format_text(final_response)
+    
+    markdown_content = f"""# AI Response Analysis
+
+## Original Prompt
+{user_prompt}
+
+## Generated Plan
+{formatted_plan}
+
+## Enhanced Response
+{formatted_response}
+
+## Execution Statistics
+```json
+{json.dumps(stats.get_summary(), indent=2)}
+```
+"""
+    
+    # Clean up any multiple blank lines
+    markdown_content = "\n".join(
+        line for i, line in enumerate(markdown_content.split("\n"))
+        if line.strip() or (i > 0 and i < len(markdown_content.split("\n")) - 1)
+    )
+    
+    with open('results.md', 'w') as f:
+        f.write(markdown_content)
 
 def prompt_chaining(user_prompt: str) -> str:
     """
@@ -432,10 +510,12 @@ def prompt_chaining(user_prompt: str) -> str:
         # Stage 1: Planning with retries
         stats.start_stage("planning")
         plan = None
+        planning_tokens = 0
         for attempt in range(config.max_retries):
             try:
-                plan = planning_stage(user_prompt)
-                if plan:
+                result = planning_stage(user_prompt)
+                if result:
+                    plan, planning_tokens = result
                     plan = process_response(plan, config.min_plan_length)
                     break
                 stats.increment_retry("planning")
@@ -452,10 +532,12 @@ def prompt_chaining(user_prompt: str) -> str:
         # Stage 2: Final Output Generation with retries
         stats.start_stage("output")
         final_response = None
+        output_tokens = 0
         for attempt in range(config.max_retries):
             try:
-                final_response = final_output_stage(user_prompt, plan)
-                if final_response:
+                result = final_output_stage(user_prompt, plan)
+                if result:
+                    final_response, output_tokens = result
                     final_response = process_response(
                         final_response, 
                         config.min_response_length
@@ -472,9 +554,19 @@ def prompt_chaining(user_prompt: str) -> str:
         if final_response is None:
             return "Failed to generate valid final output after multiple attempts."
         
+        # Record completion of stages
+        if plan:
+            stats.end_stage("planning", planning_tokens)
+        if final_response:
+            stats.end_stage("output", output_tokens)
+        
         # Print execution summary
         print("\nExecution Summary:")
         print(json.dumps(stats.get_summary(), indent=2))
+        
+        # Write results to markdown file
+        if plan and final_response:
+            write_markdown_results(user_prompt, plan, final_response, stats)
         
         return final_response
 
@@ -483,9 +575,37 @@ def prompt_chaining(user_prompt: str) -> str:
         print(error_message)
         return error_message
 
-# Example usage
+# Command line interface
 if __name__ == "__main__":
-    user_prompt = "How should a healthcare organization starting an Intelligent Automation and Generative AI program structure their approach?"
+    import argparse
+    
+    # Set up argument parser
+    parser = argparse.ArgumentParser(
+        description='Process a prompt through an AI chain for enhanced response.'
+    )
+    parser.add_argument(
+        'prompt',
+        nargs='?',  # Make it optional to support both direct input and interactive mode
+        help='The prompt to process'
+    )
+    
+    args = parser.parse_args()
+    
+    # If no prompt provided via command line, ask for it interactively
+    if not args.prompt:
+        print("\nEnter your prompt (press Enter twice to submit):")
+        lines = []
+        while True:
+            line = input()
+            if not line and lines:  # Empty line and we have content
+                break
+            lines.append(line)
+        user_prompt = "\n".join(lines)
+    else:
+        user_prompt = args.prompt
+    
+    # Process the prompt
     enhanced_response = prompt_chaining(user_prompt)
     print("\nEnhanced Response:")
     print(enhanced_response)
+    print("\nResults have been written to results.md")

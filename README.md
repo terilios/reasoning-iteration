@@ -151,13 +151,34 @@ This diagram showcases the following key aspects of the system:
 
 ## Usage
 
-Run the script with a sample prompt:
+The script supports two modes of operation:
 
-```python
-python main.py
-```
+1. Direct Command Line:
 
-Modify the `user_prompt` in the `__main__` section to test different queries.
+   ```bash
+   python main.py "Your prompt here"
+   ```
+
+2. Interactive Mode:
+   ```bash
+   python main.py
+   ```
+   Then enter your prompt when prompted. Press Enter twice to submit.
+
+The script will:
+
+1. Process your prompt through the planning stage using gpt-4o-mini
+2. Generate a detailed response using gpt-4o
+3. Write the results to results.md with:
+   - Original prompt
+   - Generated plan
+   - Enhanced response
+   - Execution statistics including:
+     - Total tokens used
+     - Stage durations
+     - Token usage per stage
+     - Retry counts
+     - Validation results
 
 ## Code Structure and Approach
 
@@ -170,12 +191,11 @@ Modify the `user_prompt` in the `__main__` section to test different queries.
 
 ### Areas for Improvement:
 
-- Token Management: Consider adding dynamic token management to prevent overflow.
-- Response Validation: Implement quality checks for the planning stage output and final response.
+- Response Validation: Enhance quality checks for the planning stage output and final response.
 - Configuration Enhancement: Add more configurable parameters for flexibility.
-- Enhanced Error Recovery: Implement graceful degradation and retry logic with exponential backoff.
+- Enhanced Error Recovery: Implement more sophisticated retry logic with exponential backoff.
 - Extensibility: Add support for custom prompt templates and async operations.
-- Documentation: Expand docstrings and add type hints for better code clarity.
+- Documentation: Expand docstrings and add more type hints for better code clarity.
 
 ## Contributing
 
@@ -185,6 +205,39 @@ Contributions to enhance the functionality or efficiency of the system are welco
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Output Format
+
+The script generates a markdown file (results.md) with the following structure:
+
+```markdown
+# AI Response Analysis
+
+## Original Prompt
+
+[Your input prompt]
+
+## Generated Plan
+
+[Structured plan from gpt-4o-mini]
+
+## Enhanced Response
+
+[Detailed response from gpt-4o]
+
+## Execution Statistics
+
+[JSON object containing performance metrics]
+```
+
+The execution statistics include:
+
+- Total duration of execution
+- Total tokens used across all stages
+- Duration of each stage (planning and output)
+- Token usage per stage
+- Number of retries if any
+- Validation results for response quality
+
 ## Summary
 
-This solution is designed to leverage the strengths of Azure OpenAI's models to tackle complex tasks with greater efficiency and thoughtfulness. By employing a structured, two-stage approach, it enhances both the quality of the AI's output and the scalability of its application in various domains, such as strategic planning, content generation, and process optimization.
+This solution leverages Azure OpenAI's models to tackle complex tasks with greater efficiency and thoughtfulness. By employing a structured, two-stage approach with comprehensive token tracking and performance monitoring, it enhances both the quality of the AI's output and the scalability of its application in various domains, such as strategic planning, content generation, and process optimization.
