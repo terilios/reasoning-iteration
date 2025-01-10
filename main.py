@@ -1,11 +1,13 @@
 import os
 import time
 import json
-from typing import Optional, Dict, List, Any, Tuple
-from dataclasses import dataclass
+from typing import Optional, Dict, List, Any, Tuple, Union
+from dataclasses import dataclass, field, asdict
+import yaml
 from enum import Enum
 from dotenv import load_dotenv
 from openai import AzureOpenAI
+import asyncio
 
 # Load environment variables from .env file
 load_dotenv()
@@ -28,14 +30,34 @@ class Config:
     min_plan_length: int = 50
     min_response_length: int = 200
     min_paragraphs: int = 2
-    quality_thresholds: Dict[str, float] = None
-
-    def __post_init__(self):
-        self.quality_thresholds = {
-            "high": 0.8,
-            "medium": 0.6,
-            "low": 0.4
-        }
+    quality_thresholds: Dict[str, float] = field(default_factory=lambda: {
+        "high": 0.8,
+        "medium": 0.6,
+        "low": 0.4
+    })
+    concurrent_requests: int = 3
+    async_batch_size: int = 5
+    
+    @classmethod
+    def from_dict(cls, config_dict: Dict[str, Any]) -> 'Config':
+        """Create Config instance from dictionary"""
+        return cls(**{k: v for k, v in config_dict.items() if k in cls.__annotations__})
+    
+    @classmethod
+    def from_yaml(cls, yaml_path: str) -> 'Config':
+        """Create Config instance from YAML file"""
+        with open(yaml_path, 'r') as f:
+            config_dict = yaml.safe_load(f)
+        return cls.from_dict(config_dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert Config to dictionary"""
+        return asdict(self)
+    
+    def save_yaml(self, yaml_path: str) -> None:
+        """Save Config to YAML file"""
+        with open(yaml_path, 'w') as f:
+            yaml.dump(self.to_dict(), f)
 
 @dataclass
 class ValidationResult:
@@ -307,8 +329,35 @@ def planning_stage(user_prompt: str) -> Optional[Tuple[str, int]]:
         print("="*50)
         
         planning_prompt = [
-            {"role": "system", "content": "You are an AI assistant that helps with task planning and decomposition."},
-            {"role": "user", "content": f"Create a concise, structured plan to address the following task: '{user_prompt}'. Provide 3-5 main steps, each with a brief description of its importance and 2-3 key considerations. Ensure all points are fully completed within the given space."}
+            {"role": "system", "content": """You are an expert AI system architect specializing in comprehensive analysis and planning. Your role is to:
+1. Break down complex tasks into logical, actionable components
+2. Identify hidden dependencies and considerations
+3. Ensure completeness and depth of analysis
+4. Structure information in a clear, hierarchical format
+5. Maintain consistency and coherence across all elements"""},
+            {"role": "user", "content": f"""Create a detailed, structured analysis plan for the following task: '{user_prompt}'
+
+Your response should include:
+1. At least 8-12 main steps, each containing:
+   - Clear objective and rationale
+   - Implementation strategy
+   - Success criteria
+   - 3-4 key considerations or potential challenges
+2. Cross-cutting concerns that span multiple steps
+3. Dependencies between steps
+4. Risk mitigation strategies
+5. Success metrics and validation criteria
+
+Format each step as:
+### Step N: [Step Name]
+**Objective**: [Clear statement of what this step achieves]
+**Rationale**: [Why this step is important]
+**Strategy**: [How to implement this step]
+**Key Considerations**:
+- [Consideration 1 with explanation]
+- [Consideration 2 with explanation]
+- [Consideration 3 with explanation]
+**Success Criteria**: [Measurable outcomes]"""}
         ]
         print_messages(planning_prompt)
         
@@ -370,8 +419,32 @@ def final_output_stage(user_prompt: str, plan: str) -> Optional[Tuple[str, int]]
         print("="*50)
         
         final_prompt = [
-            {"role": "system", "content": "You are an AI assistant that provides comprehensive and detailed responses to complex tasks."},
-            {"role": "user", "content": f"Initial task: {user_prompt}\n\nBased on the following plan, provide a detailed and comprehensive response to the initial task. Ensure your response is well-structured, addresses all aspects of the plan, and completes any truncated points:\n\n{plan}"}
+            {"role": "system", "content": """You are an expert synthesis and communication specialist. Your role is to:
+1. Create comprehensive, well-structured responses
+2. Integrate multiple perspectives and considerations
+3. Provide concrete examples and practical applications
+4. Ensure logical flow and coherent argumentation
+5. Balance depth with accessibility
+6. Anticipate and address potential questions or concerns"""},
+            {"role": "user", "content": f"""Task: {user_prompt}
+
+Using the following detailed plan as a framework, create a comprehensive response that:
+1. Synthesizes all key points into a coherent narrative
+2. Provides specific examples and practical applications
+3. Addresses potential counterarguments or limitations
+4. Includes actionable recommendations
+5. Maintains a clear logical structure
+6. Uses appropriate transitional elements between sections
+
+Plan:
+{plan}
+
+Format your response with:
+- Clear section headings
+- Bullet points for key ideas
+- Examples in separate, indented blocks
+- Summary points at the end of each major section
+- A final conclusion with key takeaways"""}
         ]
         print_messages(final_prompt)
         
@@ -575,37 +648,248 @@ def prompt_chaining(user_prompt: str) -> str:
         print(error_message)
         return error_message
 
-# Command line interface
+async def async_planning_stage(user_prompt: str) -> Optional[str]:
+    """
+    Async version of planning stage using gpt-4o-mini.
+    
+    Args:
+        user_prompt: The user's input prompt
+        
+    Returns:
+        Plan as a string, or None if planning fails
+    """
+    try:
+        validate_user_prompt(user_prompt)
+        
+        messages = [
+            {"role": "system", "content": """You are an expert AI system architect specializing in comprehensive analysis and planning. Your role is to:
+1. Break down complex tasks into logical, actionable components
+2. Identify hidden dependencies and considerations
+3. Ensure completeness and depth of analysis
+4. Structure information in a clear, hierarchical format
+5. Maintain consistency and coherence across all elements"""},
+            {"role": "user", "content": f"""Create a detailed, structured analysis plan for the following task: '{user_prompt}'
+
+Your response should include:
+1. At least 8-12 main steps, each containing:
+   - Clear objective and rationale
+   - Implementation strategy
+   - Success criteria
+   - 3-4 key considerations or potential challenges
+2. Cross-cutting concerns that span multiple steps
+3. Dependencies between steps
+4. Risk mitigation strategies
+5. Success metrics and validation criteria
+
+Format each step as:
+### Step N: [Step Name]
+**Objective**: [Clear statement of what this step achieves]
+**Rationale**: [Why this step is important]
+**Strategy**: [How to implement this step]
+**Key Considerations**:
+- [Consideration 1 with explanation]
+- [Consideration 2 with explanation]
+- [Consideration 3 with explanation]
+**Success Criteria**: [Measurable outcomes]"""}
+        ]
+        
+        # Use the synchronous client in an async context
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model=mini_deployment_name,
+                messages=messages,
+                max_tokens=config.planning_max_tokens,
+                temperature=config.temperature
+            )
+        )
+        
+        if response and response.choices:
+            plan = process_response(response.choices[0].message.content, config.min_plan_length)
+            return plan
+        return None
+    except Exception as e:
+        print(f"Error in async planning stage: {str(e)}")
+        return None
+
+async def async_final_output_stage(user_prompt: str, plan: str) -> Optional[str]:
+    """
+    Async version of final output stage using gpt-4o.
+    
+    Args:
+        user_prompt: The user's input prompt
+        plan: The plan generated by the planning stage
+        
+    Returns:
+        Final response as a string, or None if final output generation fails
+    """
+    try:
+        messages = [
+            {"role": "system", "content": """You are an expert synthesis and communication specialist. Your role is to:
+1. Create comprehensive, well-structured responses
+2. Integrate multiple perspectives and considerations
+3. Provide concrete examples and practical applications
+4. Ensure logical flow and coherent argumentation
+5. Balance depth with accessibility
+6. Anticipate and address potential questions or concerns"""},
+            {"role": "user", "content": f"""Task: {user_prompt}
+
+Using the following detailed plan as a framework, create a comprehensive response that:
+1. Synthesizes all key points into a coherent narrative
+2. Provides specific examples and practical applications
+3. Addresses potential counterarguments or limitations
+4. Includes actionable recommendations
+5. Maintains a clear logical structure
+6. Uses appropriate transitional elements between sections
+
+Plan:
+{plan}
+
+Format your response with:
+- Clear section headings
+- Bullet points for key ideas
+- Examples in separate, indented blocks
+- Summary points at the end of each major section
+- A final conclusion with key takeaways"""}
+        ]
+        
+        # Use the synchronous client in an async context
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model=deployment_name,
+                messages=messages,
+                max_tokens=config.output_max_tokens,
+                temperature=config.temperature
+            )
+        )
+        
+        if response and response.choices:
+            final_response = process_response(response.choices[0].message.content, config.min_response_length)
+            return final_response
+        return None
+    except Exception as e:
+        print(f"Error in async final output stage: {str(e)}")
+        return None
+
+async def async_prompt_chaining(user_prompt: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Async version of prompt chaining that processes a single prompt.
+    
+    Args:
+        user_prompt: The user's input prompt
+        
+    Returns:
+        Tuple of (plan, final_response, error_message)
+    """
+    try:
+        validate_user_prompt(user_prompt)
+        
+        plan = await async_planning_stage(user_prompt)
+        if not plan:
+            return None, None, "Planning stage failed"
+            
+        final_response = await async_final_output_stage(user_prompt, plan)
+        if not final_response:
+            return plan, None, "Final output stage failed"
+            
+        return plan, final_response, None
+    except Exception as e:
+        return None, None, str(e)
+
+async def process_batch(prompts: List[str]) -> List[Tuple[str, Optional[str], Optional[str], Optional[str]]]:
+    """
+    Process a batch of prompts concurrently.
+    
+    Args:
+        prompts: List of user prompts to process
+        
+    Returns:
+        List of tuples containing (original_prompt, plan, final_response, error_message)
+    """
+    print(f"\nProcessing batch of {len(prompts)} prompts...")
+    tasks = []
+    for prompt in prompts:
+        tasks.append(async_prompt_chaining(prompt))
+    
+    print("Starting concurrent processing...")
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    processed_results = []
+    for i, (prompt, result) in enumerate(zip(prompts, results)):
+        print(f"\nProcessing result {i + 1}/{len(prompts)}...")
+        if isinstance(result, Exception):
+            print(f"Error processing prompt {i + 1}: {str(result)}")
+            processed_results.append((prompt, None, None, str(result)))
+        else:
+            plan, response, error = result
+            if error:
+                print(f"Error processing prompt {i + 1}: {error}")
+            else:
+                print(f"Successfully processed prompt {i + 1}")
+            processed_results.append((prompt, plan, response, error))
+    
+    return processed_results
+
+async def process_prompts(prompts: List[str]) -> List[Tuple[str, Optional[str], Optional[str], Optional[str]]]:
+    """
+    Process a list of prompts in batches.
+    
+    Args:
+        prompts: List of prompts to process
+        
+    Returns:
+        List of results for each prompt
+    """
+    print(f"\nStarting to process {len(prompts)} prompts in batches of {config.async_batch_size}...")
+    results = []
+    for i in range(0, len(prompts), config.async_batch_size):
+        batch = prompts[i:i + config.async_batch_size]
+        print(f"\nProcessing batch {i//config.async_batch_size + 1}...")
+        batch_results = await process_batch(batch)
+        results.extend(batch_results)
+    return results
+
 if __name__ == "__main__":
     import argparse
     
-    # Set up argument parser
-    parser = argparse.ArgumentParser(
-        description='Process a prompt through an AI chain for enhanced response.'
-    )
-    parser.add_argument(
-        'prompt',
-        nargs='?',  # Make it optional to support both direct input and interactive mode
-        help='The prompt to process'
-    )
+    parser = argparse.ArgumentParser(description="AI-Powered Prompt Chaining System")
+    parser.add_argument("--prompt", type=str, help="Single prompt to process")
+    parser.add_argument("--prompts-file", type=str, help="File containing multiple prompts (one per line)")
+    parser.add_argument("--config", type=str, help="Path to YAML configuration file")
+    parser.add_argument("--use-async", action="store_true", help="Use async processing for multiple prompts")
     
     args = parser.parse_args()
     
-    # If no prompt provided via command line, ask for it interactively
-    if not args.prompt:
-        print("\nEnter your prompt (press Enter twice to submit):")
-        lines = []
-        while True:
-            line = input()
-            if not line and lines:  # Empty line and we have content
-                break
-            lines.append(line)
-        user_prompt = "\n".join(lines)
-    else:
-        user_prompt = args.prompt
+    # Load custom configuration if provided
+    if args.config:
+        print(f"\nLoading configuration from {args.config}...")
+        config = Config.from_yaml(args.config)
     
-    # Process the prompt
-    enhanced_response = prompt_chaining(user_prompt)
-    print("\nEnhanced Response:")
-    print(enhanced_response)
-    print("\nResults have been written to results.md")
+    if args.prompts_file and args.use_async:
+        print(f"\nReading prompts from {args.prompts_file}...")
+        with open(args.prompts_file, 'r') as f:
+            prompts = [line.strip() for line in f if line.strip()]
+        
+        print(f"Found {len(prompts)} prompts to process")
+        results = asyncio.run(process_prompts(prompts))
+        
+        # Write results for each prompt
+        print("\nWriting results...")
+        for i, (prompt, plan, response, error) in enumerate(results):
+            if error:
+                print(f"Error processing prompt {i+1}: {error}")
+            else:
+                print(f"Writing results for prompt {i+1}...")
+                write_markdown_results(prompt, plan, response, ExecutionStats())
+        
+        print("\nProcessing complete!")
+    
+    elif args.prompt:
+        result = prompt_chaining(args.prompt)
+        print(result)
+    
+    else:
+        print("Please provide either a single prompt or a file containing multiple prompts.")
